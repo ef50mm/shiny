@@ -27,6 +27,32 @@ releases <- knownBuilds[knownBuilds$ReleaseDate > cutoffDate, ]
 reliability <- readRDS("reliability.rds")
 reliability$Date <- as.Date(reliability$Date, "%Y-%m-%d")
 
+# matrix (date, build) -> incorrectness rate
+
+"
+results <- matrix(, nrow = length(dates), ncol = length(appVersions))
+
+incorrectnessRate <- function(date, build) {
+  correctDevices <- subset(reliability, Name %in% c(0, 1, 5) & (AppVersion == build) & (Date == date))
+  incorrectDevices <- subset(reliability, Name %in% c(2, 3) & (AppVersion == build) & (Date == date))
+  correctCount <- sum(correctDevices$DeviceCount)
+  incorrectCount <- sum(incorrectDevices$DeviceCount)
+  rate <- incorrectCount / (correctCount + incorrectCount)
+  return(rate)
+}
+
+# very slow
+for (r in 1:length(dates)) {
+  for (c in 1:length(appVersions)) {
+    cat('iteration = ', r, ', ', c, '\n')
+    results[r, c] <- incorrectnessRate(dates[r], appVersions[c])
+  }
+}
+
+saveRDS(results, 'results.rds')
+results <- readRDS('results.rds')
+"
+
 # 0: coverged
 # 1: actively syncing
 # 5: idle
@@ -42,43 +68,14 @@ incorrectCount <- aggregate(incorrectDevices$DeviceCount, list(build=incorrectDe
 appVersions <- sort(unique(knownBuilds$AppVersion))
 dates <- sort(unique(reliability$Date))
 
-# matrix (date, build) -> correctness rate
-
-"
-incorrectnessRate <- function(date, build) {
-  correct <- correctCount[(correctCount$build == build) & (correctCount$date == date), ]
-  incorrect <- incorrectCount[(incorrectCount$build == build) & (incorrectCount$date == date), ]
-  rate <- (incorrect$x / (correct$x + incorrect$x))
-  if (length(rate)==0) {
-    return(NA)
-  }
-  return(rate)
-}
-
-slow
-results <- matrix(, nrow = length(dates), ncol = length(appVersions))
-for (r in 1:length(dates)) {
-  for (c in 1:length(appVersions)) {
-    cat('iteration = ', r, ', ', c, '\n')
-    results[r, c] <- incorrectnessRate(dates[r], appVersions[c])
-  }
-}
-saveRDS(results, 'results.rds')
-results <- readRDS('results.rds')
-"
-
-incorrectnessRate <- function(dateWithBuild) {
-  # left outer join
-  correct <- merge(x = dateWithBuild, y = correctCount, by = c("build", "date"), all.x=TRUE)
-  incorrect <- merge(x = dateWithBuild, y = incorrectCount, by = c("build", "date"), all.x=TRUE)
-  rate <- (incorrect$x / (correct$x + incorrect$x))
-  return(rate)
-}
+totalCount <- merge(x = correctCount, y = incorrectCount, by = c("build", "date"), all = TRUE)
+totalCount <- totalCount[(totalCount$x.x + totalCount$x.y) > populationThreshold, ]
 
 # all combonations of builds and dates, cartesian product
 combos <- expand.grid(date=dates, build=appVersions)
-# same output dimension as the input
-rates <- incorrectnessRate(combos)
+# left outer join
+datesWithBuilds <- merge(x = combos, y = totalCount, by = c("build", "date"), all.x=TRUE)
+rates <- datesWithBuilds$x.y /(datesWithBuilds$x.x + datesWithBuilds$x.y)
 # reshape to (date, build) matrix
 results <- matrix(rates, nrow=length(dates))
 
@@ -91,14 +88,14 @@ df <- data.frame(results)
 # add a new column
 df$Date <- dates
 
+# convert the data to a "tall" format.
+allBuilds <- melt(df, id.vars="Date")
+
 # import the library for plotting
 library(ggplot2)
 
 # draw one build
 ggplot(data = df, aes(Date, X17.3.1229.0918)) + geom_line() 
-
-# convert the data to a "tall" format.
-allBuilds <- melt(df, id.vars="Date")
 
 # draw all builds in seperate plots
 ggplot(allBuilds, aes(Date, value)) + 
@@ -109,3 +106,5 @@ ggplot(allBuilds, aes(Date, value)) +
 ggplot(allBuilds, aes(Date, value)) + 
   geom_line(aes(color = variable))
 
+ggplot(allBuilds, aes(Date, value)) + 
+  geom_point(aes(color = variable))
