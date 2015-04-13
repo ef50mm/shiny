@@ -6,10 +6,12 @@ library("jsonlite")
 install.packages("curl")
 library("curl")
 
-#knownBuilds <- fromJSON("https://avocadobn1.blob.core.windows.net/avocado-cache-1/reports/77554/templates/214830/executions/13246310?sv=2014-02-14&sr=b&sig=%2FpsImNvTJYXIkGkjCfv1zvhJ76XJMk1egb0erxYng7U%3D&se=2015-04-06T05%3A54%3A10Z&sp=r")
-#reliability <- fromJSON("https://avocadobn1.blob.core.windows.net/avocado-cache-1/reports/77554/templates/214834/executions/13246311?sv=2014-02-14&sr=b&sig=6CcKx9Z0CVBytvoenqpzM3qGfcW7CR7lzPd2haNhk8k%3D&se=2015-04-06T05%3A54%3A10Z&sp=r")
-#saveRDS(releases, "knownBuilds.rds")
-#saveRDS(reliability, "reliability.rds")
+"
+knownBuilds <- fromJSON('https://avocadobn1.blob.core.windows.net/avocado-cache-1/reports/77554/templates/214830/executions/13246310?sv=2014-02-14&sr=b&sig=%2FpsImNvTJYXIkGkjCfv1zvhJ76XJMk1egb0erxYng7U%3D&se=2015-04-06T05%3A54%3A10Z&sp=r')
+reliability <- fromJSON('https://avocadobn1.blob.core.windows.net/avocado-cache-1/reports/77554/templates/214834/executions/13246311?sv=2014-02-14&sr=b&sig=6CcKx9Z0CVBytvoenqpzM3qGfcW7CR7lzPd2haNhk8k%3D&se=2015-04-06T05%3A54%3A10Z&sp=r')
+saveRDS(releases, 'knownBuilds.rds')
+saveRDS(reliability, 'reliability.rds')
+"
 
 cutoffDate = as.Date("2014-10-25", "%Y-%m-%d")
 populationThreshold = 100
@@ -40,21 +42,25 @@ incorrectCount <- aggregate(incorrectDevices$DeviceCount, list(build=incorrectDe
 appVersions <- sort(unique(knownBuilds$AppVersion))
 dates <- sort(unique(reliability$Date))
 
-# matrix (build, date) -> correctness rate
+# matrix (date, build) -> correctness rate
 
 "
-incorrectnessRate <- function(build, date) {
+incorrectnessRate <- function(date, build) {
   correct <- correctCount[(correctCount$build == build) & (correctCount$date == date), ]
   incorrect <- incorrectCount[(incorrectCount$build == build) & (incorrectCount$date == date), ]
   rate <- (incorrect$x / (correct$x + incorrect$x))
+  if (length(rate)==0) {
+    return(NA)
+  }
   return(rate)
 }
 
-very slow
-results <- matrix(, nrow = length(appVersions), ncol = length(dates))
-for (r in 1:length(appVersions)) {
-  for (c in 1:length(dates)) {
-    results[r, c] <- incorrectnessRate(appVersions[r], dates[c])
+slow
+results <- matrix(, nrow = length(dates), ncol = length(appVersions))
+for (r in 1:length(dates)) {
+  for (c in 1:length(appVersions)) {
+    cat('iteration = ', r, ', ', c, '\n')
+    results[r, c] <- incorrectnessRate(dates[r], appVersions[c])
   }
 }
 saveRDS(results, 'results.rds')
@@ -63,32 +69,43 @@ results <- readRDS('results.rds')
 
 incorrectnessRate <- function(dateWithBuild) {
   # left outer join
-  correct <- merge(x = dateWithBuild, y = correctCount, by = c("date", "build"), all.x=TRUE)
-  incorrect <- merge(x = dateWithBuild, y = incorrectCount, by = c("date", "build"), all.x=TRUE)
+  correct <- merge(x = dateWithBuild, y = correctCount, by = c("build", "date"), all.x=TRUE)
+  incorrect <- merge(x = dateWithBuild, y = incorrectCount, by = c("build", "date"), all.x=TRUE)
   rate <- (incorrect$x / (correct$x + incorrect$x))
   return(rate)
 }
 
 # all combonations of builds and dates, cartesian product
-combos <- expand.grid(build=appVersions, date=dates)
+combos <- expand.grid(date=dates, build=appVersions)
 # same output dimension as the input
 rates <- incorrectnessRate(combos)
-# reshape to (build, date) matrix
-results <- matrix(rates, nrow=length(appVersions))
+# reshape to (date, build) matrix
+results <- matrix(rates, nrow=length(dates))
 
 # all.equal(slow, fast)
 
-results <- t(results)
-rownames(results) <- appVersions
-colnames(results) <- format(dates, format="%Y-%m-%d")
-rownames(results) <- format(dates, format="%Y-%m-%d")
+# add column names
 colnames(results) <- appVersions
+# transform from matrix to data frame
 df <- data.frame(results)
-
+# add a new column
 df$Date <- dates
+
+# import the library for plotting
+library(ggplot2)
+
+# draw one build
 ggplot(data = df, aes(Date, X17.3.1229.0918)) + geom_line() 
 
-library("reshape2")
+# convert the data to a "tall" format.
+allBuilds <- melt(df, id.vars="Date")
 
-ggplot(aes(x = row.names, y = X17.3.1229.0918), data = df) + 
-  geom_point() 
+# draw all builds in seperate plots
+ggplot(allBuilds, aes(Date, value)) + 
+  geom_line() + 
+  facet_wrap(~variable)
+
+# draw all builds in one plot
+ggplot(allBuilds, aes(Date, value)) + 
+  geom_line(aes(color = variable))
+
