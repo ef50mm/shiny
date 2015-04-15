@@ -1,20 +1,19 @@
 setwd('/Users/yichen/github/R/Correctness/')
 
-install.packages("jsonlite")
-
-library("jsonlite")
-install.packages("curl")
-library("curl")
-
 "
+install.packages('jsonlite')
+library('jsonlite')
+install.packages('curl')
+library('curl')
+
 knownBuilds <- fromJSON('https://avocadobn1.blob.core.windows.net/avocado-cache-1/reports/77554/templates/214830/executions/13246310?sv=2014-02-14&sr=b&sig=%2FpsImNvTJYXIkGkjCfv1zvhJ76XJMk1egb0erxYng7U%3D&se=2015-04-06T05%3A54%3A10Z&sp=r')
 reliability <- fromJSON('https://avocadobn1.blob.core.windows.net/avocado-cache-1/reports/77554/templates/214834/executions/13246311?sv=2014-02-14&sr=b&sig=6CcKx9Z0CVBytvoenqpzM3qGfcW7CR7lzPd2haNhk8k%3D&se=2015-04-06T05%3A54%3A10Z&sp=r')
 saveRDS(releases, 'knownBuilds.rds')
 saveRDS(reliability, 'reliability.rds')
 "
 
-cutoffDate = as.Date("2014-10-25", "%Y-%m-%d")
-populationThreshold = 100
+cutoffDate <- as.Date("2014-10-25", "%Y-%m-%d")
+populationThreshold <- 100
 
 knownBuilds <- readRDS("knownBuilds.rds")
 # convert from string to date
@@ -26,6 +25,10 @@ releases <- knownBuilds[knownBuilds$ReleaseDate > cutoffDate, ]
 
 reliability <- readRDS("reliability.rds")
 reliability$Date <- as.Date(reliability$Date, "%Y-%m-%d")
+
+# get the sorted list of all unique builds and dates
+appVersions <- sort(unique(knownBuilds$AppVersion))
+dates <- sort(unique(reliability$Date))
 
 # matrix (date, build) -> incorrectness rate
 
@@ -65,17 +68,17 @@ correctCount <- aggregate(correctDevices$DeviceCount, list(build=correctDevices$
 incorrectDevices <- reliability[reliability$Name %in% c(2, 3), ]
 incorrectCount <- aggregate(incorrectDevices$DeviceCount, list(build=incorrectDevices$AppVersion, date=incorrectDevices$Date), sum)
 
-appVersions <- sort(unique(knownBuilds$AppVersion))
-dates <- sort(unique(reliability$Date))
-
+# outer join of correct and incorrect
 totalCount <- merge(x = correctCount, y = incorrectCount, by = c("build", "date"), all = TRUE)
+# remove rows that don't meet the daily 100 active devices threshold
 totalCount <- totalCount[(totalCount$x.x + totalCount$x.y) > populationThreshold, ]
 
 # all combonations of builds and dates, cartesian product
 combos <- expand.grid(date=dates, build=appVersions)
 # left outer join
 datesWithBuilds <- merge(x = combos, y = totalCount, by = c("build", "date"), all.x=TRUE)
-rates <- datesWithBuilds$x.y /(datesWithBuilds$x.x + datesWithBuilds$x.y)
+# calculate the incorrect rate
+rates <- datesWithBuilds$x.y / (datesWithBuilds$x.x + datesWithBuilds$x.y)
 # reshape to (date, build) matrix
 results <- matrix(rates, nrow=length(dates))
 
@@ -106,5 +109,16 @@ ggplot(allBuilds, aes(Date, value)) +
 ggplot(allBuilds, aes(Date, value)) + 
   geom_line(aes(color = variable))
 
-ggplot(allBuilds, aes(Date, value)) + 
-  geom_point(aes(color = variable))
+# draw serveral plots in one
+p1 <- ggplot(allBuilds, aes(Date, value)) + 
+  geom_line(aes(color = variable))
+
+p2 <- ggplot(allBuilds, aes(Date, value)) +
+  geom_smooth(method = 'lm', aes(color = variable))
+
+p3 <- ggplot(aes(x = value), data = allBuilds) + 
+  geom_histogram(aes(fill = variable)) + 
+  scale_fill_brewer(type = 'qual')
+
+library(gridExtra)
+grid.arrange(p1, p2, p3, ncol = 1)
