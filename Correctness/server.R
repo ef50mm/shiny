@@ -1,6 +1,7 @@
 library(shiny)
 library(curl)
 library(ggplot2)
+library(gridExtra)
 
 # Define server logic required to draw a histogram
 shinyServer(function(input, output) {
@@ -64,8 +65,17 @@ shinyServer(function(input, output) {
     # convert the data to a "tall" format.
     allBuilds <- melt(df, id.vars="Date")
     
-    # draw all builds in one plot
-    ggplot(allBuilds, aes(Date, value)) + 
+    # draw serveral plots in one
+    p1 <- ggplot(allBuilds, aes(Date, value)) + 
       geom_line(aes(color = variable))
+    
+    p2 <- ggplot(allBuilds, aes(Date, value)) +
+      geom_smooth(method = 'lm', aes(color = variable))
+    
+    p3 <- ggplot(aes(x = value), data = allBuilds) + 
+      geom_histogram(aes(fill = variable)) + 
+      scale_fill_brewer(type = 'qual')
+    
+    grid.arrange(p1, p2, p3, ncol = 1)
   })
 })
